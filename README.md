@@ -214,7 +214,3 @@ Install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
-
-## License
-
-This project is open source. Use responsibly and respect carrier terms of service. 
