@@ -1,0 +1,23 @@
+# Email Configuration for SMS Gateway
+# Copy this file to .env and fill in your actual credentials
+
+# Your email address (Gmail recommended)
+EMAIL_ADDRESS=your-email@gmail.com
+
+# Your email password or app password
+# For Gmail: Use App Password, not your regular password
+# Generate at: https://support.google.com/accounts/answer/185833
+EMAIL_PASSWORD=your-app-password-here
+
+# Optional: SMTP Configuration (defaults to Gmail)
+# SMTP_SERVER=smtp.gmail.com
+# SMTP_PORT=587
+
+# For other email providers, uncomment and modify:
+# Outlook/Hotmail:
+# SMTP_SERVER=smtp-mail.outlook.com
+# SMTP_PORT=587
+
+# Yahoo Mail:
+# SMTP_SERVER=smtp.mail.yahoo.com
+# SMTP_PORT=587 

@@ -1,0 +1,4 @@
+# Requirements for SMS Email Gateway
+# Core Python standard library modules are used (smtplib, email, os, getpass)
+# No external dependencies required 
+python-dotenv>=0.19.0 

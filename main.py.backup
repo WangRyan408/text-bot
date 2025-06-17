@@ -1,0 +1,383 @@
+import smtplib
+import os
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from typing import Dict, List, Optional
+import getpass
+import json
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()  # Load environment variables from .env file
+    DOTENV_AVAILABLE = True
+except ImportError:
+    DOTENV_AVAILABLE = False
+
+class SMSEmailGateway:
+    """
+    A class to send SMS messages via email gateways using various carriers.
+    """
+    
+    # Common carrier SMS gateways
+    CARRIER_GATEWAYS = {
+        'verizon': '@vtext.com',
+        'att': '@txt.att.net',
+        'tmobile': '@tmomail.net',
+        'sprint': '@messaging.sprintpcs.com',
+        'boost': '@sms.myboostmobile.com',
+        'cricket': '@sms.cricketwireless.net',
+        'uscellular': '@email.uscc.net',
+        'virgin': '@vmobl.com',
+        'metropcs': '@mymetropcs.com',
+        'tracfone': '@mmst5.tracfone.com',
+        'straighttalk': '@vtext.com',
+        'googlefi': '@msg.fi.google.com'
+    }
+    
+    def __init__(self, smtp_server: Optional[str] = None, smtp_port: Optional[int] = None):
+        """
+        Initialize the SMS Email Gateway.
+        
+        Args:
+            smtp_server: SMTP server address (defaults to env var or Gmail)
+            smtp_port: SMTP port (defaults to env var or 587 for TLS)
+        """
+        # Load SMTP settings from environment variables or use defaults
+        self.smtp_server = smtp_server or os.getenv('SMTP_SERVER', 'smtp.gmail.com')
+        self.smtp_port = smtp_port or int(os.getenv('SMTP_PORT', '587'))
+        self.sender_email: Optional[str] = None
+        self.sender_password: Optional[str] = None
+        self.server: Optional[smtplib.SMTP] = None
+        
+    def setup_credentials(self, email: Optional[str] = None, password: Optional[str] = None):
+        """
+        Set up email credentials for SMTP authentication.
+        
+        Args:
+            email: Sender email address
+            password: Email password or app password
+        """
+        if email is None:
+            self.sender_email = input("Enter your email address: ")
+        else:
+            self.sender_email = email
+            
+        if password is None:
+            self.sender_password = getpass.getpass("Enter your email password (or app password): ")
+        else:
+            self.sender_password = password
+            
+        print(f"Credentials set for: {self.sender_email}")
+        
+    def load_credentials_from_env(self):
+        """
+        Load credentials from environment variables or .env file.
+        Set EMAIL_ADDRESS and EMAIL_PASSWORD environment variables or in .env file.
+        """
+        self.sender_email = os.getenv('EMAIL_ADDRESS')
+        self.sender_password = os.getenv('EMAIL_PASSWORD')
+        
+        if not self.sender_email or not self.sender_password:
+            if DOTENV_AVAILABLE:
+                raise ValueError(
+                    "EMAIL_ADDRESS and EMAIL_PASSWORD must be set in .env file or environment variables.\n"
+                    "Copy 'env_template' to '.env' and fill in your credentials."
+                )
+            else:
+                raise ValueError(
+                    "EMAIL_ADDRESS and EMAIL_PASSWORD environment variables must be set.\n"
+                    "Install python-dotenv and create .env file for easier development."
+                )
+            
+        print(f"Credentials loaded from environment for: {self.sender_email}")
+        
+    def connect_smtp(self):
+        """
+        Establish SMTP connection with authentication.
+        """
+        if not self.sender_email or not self.sender_password:
+            print("ERROR: Credentials not set. Call setup_credentials() or load_credentials_from_env() first")
+            return False
+            
+        print(f"📧 Connecting to {self.smtp_server}:{self.smtp_port}")
+        print(f"🔐 Using email: {self.sender_email}")
+        print(f"🔑 Password length: {len(self.sender_password)} characters")
+        
+        try:
+            print("🌐 Creating SMTP connection...")
+            self.server = smtplib.SMTP(self.smtp_server, self.smtp_port)
+            
+            print("🔒 Starting TLS encryption...")
+            self.server.starttls()  # Enable encryption
+            
+            print("🔑 Authenticating...")
+            self.server.login(self.sender_email, self.sender_password)
+            
+            print("✅ SMTP connection established successfully")
+            return True
+            
+        except smtplib.SMTPAuthenticationError as e:
+            print(f"❌ SMTP Authentication failed: {e}")
+            print("🚨 This usually means:")
+            print("   • Wrong email or password")
+            print("   • For Gmail: You MUST use an App Password, not your regular password")
+            print("   • 2-Factor Authentication must be enabled")
+            print("   • Visit: https://support.google.com/accounts/answer/185833")
+            return False
+            
+        except smtplib.SMTPConnectError as e:
+            print(f"❌ Failed to connect to SMTP server: {e}")
+            print("🚨 This usually means:")
+            print("   • Network connectivity issues")
+            print("   • Firewall blocking the connection")
+            print("   • Wrong SMTP server or port")
+            return False
+            
+        except smtplib.SMTPException as e:
+            print(f"❌ SMTP error occurred: {e}")
+            return False
+            
+        except Exception as e:
+            print(f"❌ Unexpected error: {e}")
+            print(f"📍 Error type: {type(e).__name__}")
+            return False
+            
+    def disconnect_smtp(self):
+        """
+        Close SMTP connection.
+        """
+        if self.server:
+            self.server.quit()
+            print("SMTP connection closed")
+            
+    def get_sms_email(self, phone_number: str, carrier: str) -> str:
+        """
+        Convert phone number and carrier to SMS email address.
+        
+        Args:
+            phone_number: 10-digit phone number (e.g., "1234567890")
+            carrier: Carrier name (e.g., "verizon", "att", "tmobile")
+            
+        Returns:
+            SMS email address
+        """
+        # Clean phone number (remove non-digits)
+        clean_number = ''.join(filter(str.isdigit, phone_number))
+        
+        if len(clean_number) == 11 and clean_number.startswith('1'):
+            clean_number = clean_number[1:]  # Remove country code
+            
+        if len(clean_number) != 10:
+            raise ValueError(f"Invalid phone number: {phone_number}. Must be 10 digits.")
+            
+        carrier_lower = carrier.lower()
+        if carrier_lower not in self.CARRIER_GATEWAYS:
+            raise ValueError(f"Unsupported carrier: {carrier}. Supported carriers: {list(self.CARRIER_GATEWAYS.keys())}")
+            
+        return clean_number + self.CARRIER_GATEWAYS[carrier_lower]
+        
+    def send_sms(self, phone_number: str, carrier: str, message: str, subject: str = "") -> bool:
+        """
+        Send SMS message via email gateway.
+        
+        Args:
+            phone_number: Recipient phone number
+            carrier: Mobile carrier name
+            message: Message text (keep under 160 characters for SMS)
+            subject: Optional subject line
+            
+        Returns:
+            True if sent successfully, False otherwise
+        """
+        if not self.sender_email:
+            print("ERROR: Sender email not set. Call setup_credentials() first.")
+            return False
+            
+        try:
+            # Get SMS email address
+            sms_email = self.get_sms_email(phone_number, carrier)
+            
+            # Create message
+            msg = MIMEMultipart()
+            msg['From'] = self.sender_email
+            msg['To'] = sms_email
+            msg['Subject'] = subject
+            
+            # Attach message body
+            msg.attach(MIMEText(message, 'plain'))
+            
+            # Send email
+            if not self.server:
+                if not self.connect_smtp():
+                    return False
+                    
+            if self.server:  # Additional check after connection attempt
+                text = msg.as_string()
+                self.server.sendmail(self.sender_email, sms_email, text)
+                
+                print(f"SMS sent successfully to {phone_number} ({carrier})")
+                return True
+            else:
+                return False
+            
+        except Exception as e:
+            print(f"ERROR: Failed to send SMS: {e}")
+            return False
+            
+    def send_bulk_sms(self, recipients: List[Dict], message: str, subject: str = "") -> Dict:
+        """
+        Send SMS to multiple recipients.
+        
+        Args:
+            recipients: List of dicts with 'phone' and 'carrier' keys
+            message: Message text
+            subject: Optional subject line
+            
+        Returns:
+            Dictionary with success/failure counts and details
+        """
+        results = {
+            'successful': [],
+            'failed': [],
+            'total_sent': 0,
+            'total_failed': 0
+        }
+        
+        if not self.server:
+            if not self.connect_smtp():
+                return results
+                
+        for recipient in recipients:
+            phone = recipient.get('phone')
+            carrier = recipient.get('carrier')
+            
+            if not phone or not carrier:
+                results['failed'].append({
+                    'recipient': recipient,
+                    'error': 'Missing phone or carrier'
+                })
+                results['total_failed'] += 1
+                continue
+                
+            success = self.send_sms(phone, carrier, message, subject)
+            
+            if success:
+                results['successful'].append(recipient)
+                results['total_sent'] += 1
+            else:
+                results['failed'].append({
+                    'recipient': recipient,
+                    'error': 'Send failed'
+                })
+                results['total_failed'] += 1
+                
+        return results
+        
+    def list_supported_carriers(self):
+        """
+        Display all supported carriers.
+        """
+        print("Supported Carriers:")
+        for carrier, gateway in self.CARRIER_GATEWAYS.items():
+            print(f"  {carrier.title()}: {gateway}")
+    
+    def debug_credentials(self):
+        """
+        Debug function to check credential status (without revealing actual values)
+        """
+        print("\n🔍 Credential Debug Info:")
+        print(f"   Email set: {'✅' if self.sender_email else '❌'}")
+        if self.sender_email:
+            print(f"   Email: {self.sender_email}")
+        print(f"   Password set: {'✅' if self.sender_password else '❌'}")
+        if self.sender_password:
+            print(f"   Password length: {len(self.sender_password)} chars")
+            print(f"   Starts with: {self.sender_password[:4]}...")
+        print(f"   SMTP Server: {self.smtp_server}:{self.smtp_port}")
+        print()
+
+
+def main():
+    """
+    Example usage of the SMS Email Gateway
+    """
+    print("=== SMS Email Gateway ===")
+    print("This tool allows you to send SMS messages via email gateways.\n")
+    
+    # Create gateway instance
+    gateway = SMSEmailGateway()
+    
+    # Show supported carriers
+    gateway.list_supported_carriers()
+    print()
+    
+    # Setup credentials (try .env file first, then interactive)
+    try:
+        # Option 1: Try loading from .env file first (development mode)
+        try:
+            gateway.load_credentials_from_env()
+            print("✓ Credentials loaded from .env file")
+        except ValueError as e:
+            print(f"⚠ {e}")
+            print("\n--- Falling back to interactive setup ---")
+            # Option 2: Interactive setup fallback
+            gateway.setup_credentials()
+        
+        # Debug credentials (helpful for troubleshooting)
+        gateway.debug_credentials()
+        
+        # Test single SMS
+        print("\n=== Send Test SMS ===")
+        phone = input("Enter phone number (10 digits): ")
+        carrier = input("Enter carrier (e.g., verizon, att, tmobile): ")
+        message = input("Enter message (keep under 160 chars): ")
+        
+        # Connect and send
+        print("🔄 Attempting to connect to SMTP server...")
+        connection_success = gateway.connect_smtp()
+        
+        if connection_success:
+            print("✅ Connected Successfully!")
+            print("📤 Sending SMS...")
+            success = gateway.send_sms(phone, carrier, message, "Test SMS")
+            
+            if success:
+                print("✓ SMS sent successfully!")
+            else:
+                print("✗ Failed to send SMS")
+        else:
+            print("❌ SMTP connection failed!")
+            print("🔧 Troubleshooting tips:")
+            print("1. Check your .env file has correct EMAIL_ADDRESS and EMAIL_PASSWORD")
+            print("2. For Gmail: Make sure you're using an App Password, not your regular password")
+            print("3. Verify 2-Factor Authentication is enabled on your Gmail account")
+            print("4. Check your internet connection")
+                
+        # Example bulk SMS (uncomment to use)
+        """
+        recipients = [
+            {'phone': '1234567890', 'carrier': 'verizon'},
+            {'phone': '0987654321', 'carrier': 'att'},
+        ]
+        
+        bulk_results = gateway.send_bulk_sms(
+            recipients, 
+            "Hello from automated SMS system!", 
+            "Bulk Test"
+        )
+        
+        print(f"Bulk SMS Results:")
+        print(f"  Sent: {bulk_results['total_sent']}")
+        print(f"  Failed: {bulk_results['total_failed']}")
+        """
+        
+    except KeyboardInterrupt:
+        print("\nOperation cancelled by user")
+    except Exception as e:
+        print(f"Error: {e}")
+    finally:
+        gateway.disconnect_smtp()
+
+
+if __name__ == "__main__":
+    main()
